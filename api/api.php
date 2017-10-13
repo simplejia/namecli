@@ -58,7 +58,7 @@ $ip = "127.0.0.1";
 $port = 8328;
 $obj = new NameApi($ip, $port);
 
-$name = "ugc.srv.ns";
+$name = "namesrv.ns";
 $ipport = ""; 
 
 $ret = $obj->proc($name, $ipport);

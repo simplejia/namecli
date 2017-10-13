@@ -19,6 +19,7 @@ var (
 	HttpClient = &http.Client{Timeout: time.Second}
 	OnPrefix   = "on:"
 	OffPrefix  = "off:"
+	SyncPrefix = "sync:"
 )
 
 func GetOnKey(name string) string {
@@ -27,6 +28,10 @@ func GetOnKey(name string) string {
 
 func GetOffKey(name string) string {
 	return OffPrefix + name
+}
+
+func GetSyncKey(name string) string {
+	return SyncPrefix + name
 }
 
 func gcd(a, b int) int {
@@ -53,14 +58,12 @@ func (rel *Relation) JoinHostPort() string {
 
 type RespData struct {
 	Rels          []*Relation
-	CheckCode     string    `json:"cc"`
-	Num           int       `json:"-"`
-	LastAddr      string    `json:"-"`
-	LastTime      time.Time `json:"-"`
-	Gcd           int       `json:"-"`
-	MaxWeight     int       `json:"-"`
-	CurrentIndex  int       `json:"-"`
-	CurrentWeight int       `json:"-"`
+	CheckCode     string `json:"cc"`
+	Num           int    `json:"-"`
+	Gcd           int    `json:"-"`
+	MaxWeight     int    `json:"-"`
+	CurrentIndex  int    `json:"-"`
+	CurrentWeight int    `json:"-"`
 }
 
 func (rd *RespData) GetGcd() int {
@@ -139,15 +142,6 @@ func (rd *RespData) GetAddr() (addr string) {
 		return
 	}
 
-	_addr := rd.LastAddr
-	if _addr != "" && time.Since(rd.LastTime) < time.Second {
-		vLc, _ := lc.Get(GetOffKey(_addr))
-		if vLc == nil || !vLc.(bool) {
-			addr = _addr
-			return
-		}
-	}
-
 	for len(rels) > 0 {
 		i := rd.NextIndex() % len(rels)
 		rel := rels[i]
@@ -161,7 +155,6 @@ func (rd *RespData) GetAddr() (addr string) {
 		rels = append(_rels, rels[i+1:]...)
 	}
 
-	rd.LastAddr, rd.LastTime = addr, time.Now()
 	return
 }
 
@@ -299,5 +292,20 @@ func GetAddrFromName(name string) (addr string) {
 		}()
 	}
 
+	return
+}
+
+func GetAddrFromNameSync(name string) (addr string) {
+	lcKey := GetSyncKey(name)
+	addrLc, ok := lc.Get(lcKey)
+	if addrLc != nil {
+		addr = addrLc.(string)
+	}
+	if ok {
+		return
+	}
+
+	addr = GetAddrFromName(name)
+	lc.Set(lcKey, addr, time.Second)
 	return
 }
