@@ -164,7 +164,6 @@ func CheckRemoteConn(addr string) {
 			continue
 		}
 		if err == io.EOF {
-			lc.Set(GetOffKey(addr), true, NameExpire)
 			break
 		}
 	}

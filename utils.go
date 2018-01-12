@@ -306,6 +306,6 @@ func GetAddrFromNameSync(name string) (addr string) {
 	}
 
 	addr = GetAddrFromName(name)
-	lc.Set(lcKey, addr, time.Second)
+	lc.Set(lcKey, addr, time.Millisecond*100)
 	return
 }
