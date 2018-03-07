@@ -72,7 +72,7 @@ func main() {
 
 				body := request[:readLen]
 				seq, name := SplitBody(body)
-				addr := GetAddrFromNameSync(string(name))
+				addr := GetAddrFromName(string(name))
 				body = JoinBody(seq, []byte(addr))
 				conn.WriteTo(body, raddr)
 			}

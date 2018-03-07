@@ -19,7 +19,6 @@ var (
 	HttpClient = &http.Client{Timeout: time.Second}
 	OnPrefix   = "on:"
 	OffPrefix  = "off:"
-	SyncPrefix = "sync:"
 )
 
 func GetOnKey(name string) string {
@@ -28,10 +27,6 @@ func GetOnKey(name string) string {
 
 func GetOffKey(name string) string {
 	return OffPrefix + name
-}
-
-func GetSyncKey(name string) string {
-	return SyncPrefix + name
 }
 
 func gcd(a, b int) int {
@@ -192,12 +187,13 @@ func GetSrvAddr() (addr string) {
 		rd.Num++
 		addr = rd.GetAddr()
 	}
-	if ok && addr != "" {
-		return
-	}
 
 	if addr == "" {
 		addr = SrvAddr
+	}
+
+	if ok {
+		return
 	}
 
 	go func() {
@@ -292,20 +288,5 @@ func GetAddrFromName(name string) (addr string) {
 		}()
 	}
 
-	return
-}
-
-func GetAddrFromNameSync(name string) (addr string) {
-	lcKey := GetSyncKey(name)
-	addrLc, ok := lc.Get(lcKey)
-	if addrLc != nil {
-		addr = addrLc.(string)
-	}
-	if ok {
-		return
-	}
-
-	addr = GetAddrFromName(name)
-	lc.Set(lcKey, addr, time.Millisecond*100)
 	return
 }
