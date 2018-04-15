@@ -61,7 +61,7 @@ again:
 			retried = true
 			goto again
 		}
-		err = errors.New("no addr found from namesrv")
+		err = fmt.Errorf("no addr found from namesrv: %s", name)
 		return
 	}
 
