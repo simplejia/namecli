@@ -9,16 +9,14 @@ import (
 	"log"
 	"net"
 	"os"
-	"runtime"
 
 	"github.com/simplejia/lc"
 )
 
 var (
-	NumProcs int
-	Port     int
-	SrvAddr  string
-	SrvName  string
+	Port    int
+	SrvAddr string
+	SrvName string
 )
 
 func init() {
@@ -28,7 +26,6 @@ func init() {
 func main() {
 	log.Println("main()")
 
-	flag.IntVar(&NumProcs, "num_procs", 0, "specify the concurrent process num")
 	flag.IntVar(&Port, "port", 8328, "specify the listening port")
 	flag.StringVar(&SrvAddr, "srv_addr", "", "specify the namesrv addr")
 	flag.StringVar(&SrvName, "srv_name", "", "specify the namesrv name")
@@ -57,27 +54,17 @@ func main() {
 	}
 	defer conn.Close()
 
-	if NumProcs <= 0 {
-		NumProcs = runtime.NumCPU()
+	request := make([]byte, 1024)
+	for {
+		readLen, raddr, err := conn.ReadFrom(request)
+		if err != nil || readLen <= 0 {
+			continue
+		}
+
+		body := request[:readLen]
+		seq, name := SplitBody(body)
+		addr := GetAddrFromName(string(name))
+		body = JoinBody(seq, []byte(addr))
+		conn.WriteTo(body, raddr)
 	}
-
-	for i := 0; i < NumProcs; i++ {
-		go func() {
-			request := make([]byte, 1024)
-			for {
-				readLen, raddr, err := conn.ReadFrom(request)
-				if err != nil || readLen <= 0 {
-					continue
-				}
-
-				body := request[:readLen]
-				seq, name := SplitBody(body)
-				addr := GetAddrFromName(string(name))
-				body = JoinBody(seq, []byte(addr))
-				conn.WriteTo(body, raddr)
-			}
-		}()
-	}
-
-	select {}
 }
