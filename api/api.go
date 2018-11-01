@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 	"sync/atomic"
-	"time"
 )
 
 var (
@@ -33,7 +32,6 @@ again:
 	}
 
 	rsp := [64]byte{}
-	conn.SetReadDeadline(time.Now().Add(time.Millisecond * 20))
 	n, err := conn.Read(rsp[:])
 	if err != nil || n <= 0 {
 		return
