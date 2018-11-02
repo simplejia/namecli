@@ -18,5 +18,5 @@
 1. 给名字服务提供一个比较好用的图形管理界面
 
 ## 注：
-1. 名字服务包含agent, master两个程序，分别对应namecli, namesrv，namecli需部署到本机，namesrv可部署多个
+1. 名字服务包含agent, master两个程序，分别对应namecli, namesrv，namecli需部署到本机，namesrv可部署多个
 2. namesrv用到的存储目前是mongo
