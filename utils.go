@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -112,7 +111,7 @@ func (rd *RespData) NextIndex() int {
 	for {
 		index = (index + 1) % len(rd.Rels)
 		if index == 0 {
-			weight = weight - rd.Gcd
+			weight -= rd.Gcd
 			if weight <= 0 {
 				weight = rd.MaxWeight
 			}
@@ -172,13 +171,6 @@ func JoinBody(seq, name []byte) (body []byte) {
 	return
 }
 
-func ShuffleAddrs(addrs []string) {
-	for i := len(addrs) - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
-		addrs[i], addrs[j] = addrs[j], addrs[i]
-	}
-}
-
 func GetSrvAddr() (addr string) {
 	var rd *RespData
 	rdLc, ok := lc.Get(GetOnKey(SrvName))
@@ -187,33 +179,29 @@ func GetSrvAddr() (addr string) {
 		rd.Num++
 		addr = rd.GetAddr()
 	}
-
-	if addr == "" {
-		addr = SrvAddr
-	}
-
-	if ok {
+	if ok && addr != "" {
 		return
 	}
 
-	go func() {
-		addrs := []string{}
+	if addr == "" {
+		addr = SrvAddr
+		rd = GetRelsFromName(SrvName, addr, rd)
 		if rd != nil {
-			for _, rel := range rd.Rels {
-				addrs = append(addrs, rel.JoinHostPort())
-			}
-			ShuffleAddrs(addrs)
+			addr = rd.GetAddr()
+			go func() {
+				lc.Set(GetOnKey(SrvName), rd, NameExpire)
+				CheckRemoteConn(rd.Rels)
+			}()
 		}
-		addrs = append(addrs, SrvAddr)
-		for _, addr := range addrs {
+	} else {
+		go func() {
 			rd = GetRelsFromName(SrvName, addr, rd)
 			if rd != nil {
 				lc.Set(GetOnKey(SrvName), rd, NameExpire)
-				Check(SrvName, rd.Rels)
-				break
+				CheckRemoteConn(rd.Rels)
 			}
-		}
-	}()
+		}()
+	}
 
 	return
 }
@@ -274,16 +262,18 @@ func GetAddrFromName(name string) (addr string) {
 	if addr == "" {
 		rd = GetRelsFromName(name, GetSrvAddr(), rd)
 		if rd != nil {
-			lc.Set(GetOnKey(name), rd, NameExpire)
-			Check(name, rd.Rels)
 			addr = rd.GetAddr()
+			go func() {
+				lc.Set(GetOnKey(name), rd, NameExpire)
+				CheckRemoteConn(rd.Rels)
+			}()
 		}
 	} else {
 		go func() {
 			rd = GetRelsFromName(name, GetSrvAddr(), rd)
 			if rd != nil {
 				lc.Set(GetOnKey(name), rd, NameExpire)
-				Check(name, rd.Rels)
+				CheckRemoteConn(rd.Rels)
 			}
 		}()
 	}

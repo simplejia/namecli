@@ -19,7 +19,7 @@ basedir=`pwd`
 basename=`basename $this`
 procname=${basename%.*}
 
-cmd="$basedir/$procname -srv_addr=nameserver.in.ixiaochuan.cn -srv_name=namesrv.ns"
+cmd="$basedir/$procname -srv_addr=127.0.0.1:8329 -srv_name=namesrv.ns"
 
 retval=0
 
@@ -27,7 +27,7 @@ retval=0
 PATH=".:$PATH"
 export PATH
 
-pid_cmd="ps -e opid ocmd|grep -v grep|grep -v $procname.sh|grep \"$cmd\"|awk '{print \$1}'"
+pid_cmd="ps -e -opid -ocommand|grep -v grep|grep -v $procname.sh|grep \"$cmd\"|awk '{print \$1}'"
 
 # start the server
 start(){

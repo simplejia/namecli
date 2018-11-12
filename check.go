@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/simplejia/lc"
@@ -17,15 +18,16 @@ import (
 )
 
 var (
-	Mu sync.Mutex
-	M  = map[string]bool{}
+	MutexRemote sync.Mutex
+	MapRemote   = map[string]bool{}
+	MutexLocal  sync.Mutex
+	MapLocal    = map[string]bool{}
 )
 
 func init() {
 	LocalIp := utils.LocalIp
 	if LocalIp == "" {
-		log.Println("get localip error")
-		os.Exit(-1)
+		log.Fatalln("get localip error")
 	}
 	log.Println("localip:", LocalIp)
 
@@ -104,86 +106,140 @@ func CheckLocalConn(ip string) {
 	var rd *RespData
 
 	for {
-		time.Sleep(time.Second * 10)
+		time.Sleep(time.Second * 5)
 
 		rd = GetRelsFromIp(ip, GetSrvAddr(), rd)
 		if rd == nil {
 			continue
 		}
+
+		MutexLocal.Lock()
 		for _, rel := range rd.Rels {
-			switch rel.Udp {
-			case true:
-				addr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", rel.Port))
-				ln, err := net.ListenUDP("udp", addr)
-				if err == nil {
-					ReportOff(rel.JoinHostPort(), true, GetSrvAddr())
-					ln.Close()
+			addr := rel.JoinHostPort()
+			if MapLocal[addr] {
+				continue
+			}
+			MapLocal[addr] = true
+			if rel.Udp {
+				go CheckConnUdp(addr, false)
+			} else {
+				go CheckConnTcp(addr, false)
+			}
+		}
+		MutexLocal.Unlock()
+	}
+}
+
+func CheckConnTcp(addr string, isRemote bool) {
+	defer func() {
+		if isRemote {
+			MutexRemote.Lock()
+			delete(MapRemote, addr)
+			MutexRemote.Unlock()
+		} else {
+			MutexLocal.Lock()
+			delete(MapLocal, addr)
+			MutexLocal.Unlock()
+		}
+	}()
+
+	retried := false
+again:
+	c, err := net.DialTimeout("tcp", addr, time.Second*10)
+	if err != nil {
+		if opErr, ok := err.(*net.OpError); ok {
+			if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
+				if isRemote {
+					lc.Set(GetOffKey(addr), true, NameExpire)
 				} else {
-					ReportOff(rel.JoinHostPort(), false, GetSrvAddr())
-				}
-			case false:
-				addr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", rel.Port))
-				ln, err := net.ListenTCP("tcp", addr)
-				if err == nil {
-					ReportOff(rel.JoinHostPort(), true, GetSrvAddr())
-					ln.Close()
-				} else {
-					ReportOff(rel.JoinHostPort(), false, GetSrvAddr())
+					ReportOff(addr, true, GetSrvAddr())
 				}
 			}
 		}
-	}
-}
-
-func CheckRemoteConn(addr string) {
-	defer func() {
-		Mu.Lock()
-		delete(M, addr)
-		Mu.Unlock()
-	}()
-
-	c, err := net.DialTimeout("tcp", addr, time.Second)
-	if err != nil {
-		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-			return
-		}
-		lc.Set(GetOffKey(addr), true, NameExpire)
 		return
 	}
-	if v, _ := lc.Get(GetOffKey(addr)); v != nil {
+	defer c.Close()
+
+	if isRemote {
 		lc.Set(GetOffKey(addr), false, NameExpire)
+	} else {
+		ReportOff(addr, false, GetSrvAddr())
 	}
 
-	for d, bt := [1]byte{}, time.Now(); time.Since(bt) < time.Minute*5; {
-		c.SetReadDeadline(time.Now().Add(time.Second * 10))
-		_, err = c.Read(d[:])
-		if err == nil {
-			break
-		}
-		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-			continue
-		}
-		if err == io.EOF {
+	for d, bt := [64]byte{}, time.Now(); time.Since(bt) < time.Minute; {
+		c.SetReadDeadline(time.Now().Add(time.Second * 5))
+		if _, err := c.Read(d[:]); err == io.EOF {
+			if !retried {
+				retried = true
+				goto again
+			}
 			break
 		}
 	}
-	c.Close()
 	return
 }
 
-func Check(name string, rels []*Relation) {
-	Mu.Lock()
-	defer Mu.Unlock()
+func CheckConnUdp(addr string, isRemote bool) {
+	defer func() {
+		if isRemote {
+			MutexRemote.Lock()
+			delete(MapRemote, addr)
+			MutexRemote.Unlock()
+		} else {
+			MutexLocal.Lock()
+			delete(MapLocal, addr)
+			MutexLocal.Unlock()
+		}
+	}()
 
-	for _, rel := range rels {
-		if rel.Udp {
-			continue
-		}
-		addr := rel.JoinHostPort()
-		if M[addr] {
-			continue
-		}
-		M[addr] = true
-		go CheckRemoteConn(addr)
+	c, err := net.Dial("udp", addr)
+	if err != nil {
+		return
 	}
+	defer c.Close()
+
+	for d, bt := [64]byte{}, time.Now(); time.Since(bt) < time.Minute; {
+		var err error
+		c.Write(nil)
+		for {
+			c.SetReadDeadline(time.Now().Add(time.Second * 5))
+			if _, err = c.Read(d[:]); err != nil {
+				break
+			}
+		}
+		if opErr, ok := err.(*net.OpError); ok {
+			if opErr.Timeout() {
+				if isRemote {
+					lc.Set(GetOffKey(addr), false, NameExpire)
+				} else {
+					ReportOff(addr, false, GetSrvAddr())
+				}
+			} else if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
+				if isRemote {
+					lc.Set(GetOffKey(addr), true, NameExpire)
+				} else {
+					ReportOff(addr, true, GetSrvAddr())
+				}
+				break
+			}
+		}
+	}
+	return
+}
+
+func CheckRemoteConn(rels []*Relation) {
+	MutexRemote.Lock()
+	for _, rel := range rels {
+		addr := rel.JoinHostPort()
+		if MapRemote[addr] {
+			continue
+		}
+		MapRemote[addr] = true
+		if rel.Udp {
+			go CheckConnUdp(addr, true)
+		} else {
+			go CheckConnTcp(addr, true)
+		}
+	}
+	MutexRemote.Unlock()
 }
