@@ -143,39 +143,49 @@ func CheckConnTcp(addr string, isRemote bool) {
 		}
 	}()
 
-	retried := false
-again:
-	c, err := net.DialTimeout("tcp", addr, time.Second*10)
-	if err != nil {
-		if opErr, ok := err.(*net.OpError); ok {
-			if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
-				if isRemote {
-					lc.Set(GetOffKey(addr), true, NameExpire)
-				} else {
-					ReportOff(addr, true, GetSrvAddr())
-				}
+	for d, bt := [1]byte{}, time.Now(); time.Since(bt) < time.Minute; {
+		c, err := net.DialTimeout("tcp", addr, time.Second*10)
+		if err != nil {
+			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				continue
 			}
-		}
-		return
-	}
-	defer c.Close()
-
-	if isRemote {
-		lc.Set(GetOffKey(addr), false, NameExpire)
-	} else {
-		ReportOff(addr, false, GetSrvAddr())
-	}
-
-	for d, bt := [64]byte{}, time.Now(); time.Since(bt) < time.Minute; {
-		c.SetReadDeadline(time.Now().Add(time.Second * 5))
-		if _, err := c.Read(d[:]); err == io.EOF {
-			if !retried {
-				retried = true
-				goto again
+			if isRemote {
+				lc.Set(GetOffKey(addr), true, NameExpire)
+			} else {
+				ReportOff(addr, true, GetSrvAddr())
 			}
 			break
 		}
+
+		c.(*net.TCPConn).SetLinger(0)
+
+		if isRemote {
+			lc.Set(GetOffKey(addr), false, NameExpire)
+		} else {
+			ReportOff(addr, false, GetSrvAddr())
+		}
+
+		c.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := c.Read(d[:]); err == io.EOF {
+			if c, err := net.DialTimeout("tcp", addr, time.Second*10); err != nil {
+				if opErr, ok := err.(*net.OpError); ok {
+					if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
+						if isRemote {
+							lc.Set(GetOffKey(addr), true, NameExpire)
+						} else {
+							ReportOff(addr, true, GetSrvAddr())
+						}
+					}
+				}
+			} else {
+				c.(*net.TCPConn).SetLinger(0)
+				c.Close()
+			}
+		}
+
+		c.Close()
 	}
+
 	return
 }
 
@@ -194,37 +204,43 @@ func CheckConnUdp(addr string, isRemote bool) {
 
 	c, err := net.Dial("udp", addr)
 	if err != nil {
-		return
+		goto fail
 	}
 	defer c.Close()
 
-	for d, bt := [64]byte{}, time.Now(); time.Since(bt) < time.Minute; {
-		var err error
-		c.Write(nil)
-		for {
-			c.SetReadDeadline(time.Now().Add(time.Second * 5))
-			if _, err = c.Read(d[:]); err != nil {
-				break
+	for d, bt := [1]byte{}, time.Now(); time.Since(bt) < time.Minute; {
+		if _, err := c.Write(nil); err != nil {
+			if opErr, ok := err.(*net.OpError); ok {
+				if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
+					goto fail
+				}
 			}
 		}
-		if opErr, ok := err.(*net.OpError); ok {
-			if opErr.Timeout() {
-				if isRemote {
-					lc.Set(GetOffKey(addr), false, NameExpire)
-				} else {
-					ReportOff(addr, false, GetSrvAddr())
+
+		c.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := c.Read(d[:]); err != nil {
+			if opErr, ok := err.(*net.OpError); ok {
+				if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
+					goto fail
 				}
-			} else if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == syscall.ECONNREFUSED {
-				if isRemote {
-					lc.Set(GetOffKey(addr), true, NameExpire)
-				} else {
-					ReportOff(addr, true, GetSrvAddr())
-				}
-				break
 			}
+		}
+
+		if isRemote {
+			lc.Set(GetOffKey(addr), false, NameExpire)
+		} else {
+			ReportOff(addr, false, GetSrvAddr())
 		}
 	}
+
 	return
+
+fail:
+	if isRemote {
+		lc.Set(GetOffKey(addr), true, NameExpire)
+	} else {
+		ReportOff(addr, true, GetSrvAddr())
+	}
 }
 
 func CheckRemoteConn(rels []*Relation) {
