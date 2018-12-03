@@ -165,6 +165,7 @@ func CheckConnTcp(addr string, isRemote bool) {
 			ReportOff(addr, false, GetSrvAddr())
 		}
 
+		readt := time.Now()
 		c.SetReadDeadline(time.Now().Add(time.Second))
 		if _, err := c.Read(d[:]); err == io.EOF {
 			if c, err := net.DialTimeout("tcp", addr, time.Second*10); err != nil {
@@ -184,6 +185,10 @@ func CheckConnTcp(addr string, isRemote bool) {
 		}
 
 		c.Close()
+
+		if time.Since(readt) < time.Second {
+			time.Sleep(time.Second)
+		}
 	}
 
 	return
@@ -217,6 +222,7 @@ func CheckConnUdp(addr string, isRemote bool) {
 			}
 		}
 
+		readt := time.Now()
 		c.SetReadDeadline(time.Now().Add(time.Second))
 		if _, err := c.Read(d[:]); err != nil {
 			if opErr, ok := err.(*net.OpError); ok {
@@ -230,6 +236,10 @@ func CheckConnUdp(addr string, isRemote bool) {
 			lc.Set(GetOffKey(addr), false, NameExpire)
 		} else {
 			ReportOff(addr, false, GetSrvAddr())
+		}
+
+		if time.Since(readt) < time.Second {
+			time.Sleep(time.Second)
 		}
 	}
 
