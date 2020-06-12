@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -26,12 +27,14 @@ again:
 
 	seq := atomic.AddUint32(&seq, 1)
 	req := fmt.Sprintf("%d,%s", seq, name)
+	conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
 	_, err = conn.Write([]byte(req))
 	if err != nil {
 		return
 	}
 
 	rsp := [64]byte{}
+	conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 	n, err := conn.Read(rsp[:])
 	if err != nil || n <= 0 {
 		return
