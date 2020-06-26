@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -44,34 +43,27 @@ func GetRelsFromIp(ip, addr string, rdOld *RespData) (rdNew *RespData) {
 		cc = rdOld.CheckCode
 	}
 	url := fmt.Sprintf("http://%s/%s?ip=%s&cc=%s", addr, "relation/getsFromIp", ip, cc)
-	resp, err := HttpClient.Get(url)
-	defer func() {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		if err != nil {
-			log.Printf("http get error: %v, url: %s\n", err, url)
-		}
-	}()
+
+	statusCode := new(int)
+	body, err := utils.Get(&utils.GPP{Uri: url, Timeout: 3 * time.Second, StatusCodeRet: statusCode})
 	if err != nil {
+		log.Printf("http get error: %v, url: %s\n", err, url)
 		return
 	}
-	code := resp.StatusCode
-	if code == http.StatusNotModified {
+	if *statusCode == http.StatusNotModified {
 		rdNew = rdOld
 		return
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-	if code != http.StatusOK {
-		err = fmt.Errorf("http code not 200: %d, resp: %s", code, body)
+	if *statusCode != http.StatusOK {
+		log.Printf("http code not 200: %d, resp: %s\n", *statusCode, body)
 		return
 	}
 
-	err = json.Unmarshal(body, &rdNew)
+	if err := json.Unmarshal(body, &rdNew); err != nil {
+		log.Printf("http resp invalid: %v, url: %s\n", err, url)
+		return
+	}
 	return
 }
 
@@ -81,21 +73,8 @@ func ReportOff(ipport string, off bool, addr string) {
 	}
 
 	url := fmt.Sprintf("http://%s/%s?ipport=%s&off=%t", addr, "relation/reportOff", ipport, off)
-	resp, err := HttpClient.Get(url)
-	defer func() {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		if err != nil {
-			log.Printf("http get error: %v, url: %s\n", err, url)
-		}
-	}()
-	if err != nil {
-		return
-	}
-	code := resp.StatusCode
-	if code != http.StatusOK {
-		err = fmt.Errorf("http code not 200: %d", code)
+	if _, err := utils.Get(&utils.GPP{Uri: url, Timeout: 3 * time.Second}); err != nil {
+		log.Printf("http get error: %v, url: %s\n", err, url)
 		return
 	}
 

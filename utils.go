@@ -4,18 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/simplejia/lc"
+	"github.com/simplejia/utils"
 )
 
 var (
 	BodySeq    = byte(',')
 	NameExpire = time.Second * 5
-	HttpClient = &http.Client{Timeout: time.Second}
 	OnPrefix   = "on:"
 	OffPrefix  = "off:"
 )
@@ -216,34 +215,27 @@ func GetRelsFromName(name, addr string, rdOld *RespData) (rdNew *RespData) {
 		cc, num = rdOld.CheckCode, rdOld.Num
 	}
 	url := fmt.Sprintf("http://%s/%s?name=%s&cc=%s&num=%d", addr, "relation/getsFromName", name, cc, num)
-	resp, err := HttpClient.Get(url)
-	defer func() {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		if err != nil {
-			log.Printf("http get error: %v, url: %s\n", err, url)
-		}
-	}()
+
+	statusCode := new(int)
+	body, err := utils.Get(&utils.GPP{Uri: url, Timeout: 3 * time.Second, StatusCodeRet: statusCode})
 	if err != nil {
+		log.Printf("http get error: %v, url: %s\n", err, url)
 		return
 	}
-	code := resp.StatusCode
-	if code == http.StatusNotModified {
+	if *statusCode == http.StatusNotModified {
 		rdNew = rdOld.Copy()
 		return
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-	if code != http.StatusOK {
-		err = fmt.Errorf("http code not 200: %d, resp: %s", code, body)
+	if *statusCode != http.StatusOK {
+		log.Printf("http code not 200: %d, resp: %s\n", *statusCode, body)
 		return
 	}
 
-	err = json.Unmarshal(body, &rdNew)
+	if err := json.Unmarshal(body, &rdNew); err != nil {
+		log.Printf("http resp invalid: %v, url: %s\n", err, url)
+		return
+	}
 	return
 }
 
