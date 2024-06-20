@@ -236,6 +236,9 @@ func GetRelsFromName(name, addr string, rdOld *RespData) (rdNew *RespData) {
 		log.Printf("http resp invalid: %v, url: %s\n", err, url)
 		return
 	}
+	rdNew.CurrentIndex = -1
+	rdNew.Gcd = rdNew.GetGcd()
+	rdNew.MaxWeight = rdNew.GetMaxWeight()
 	return
 }
 
@@ -244,8 +247,8 @@ func GetAddrFromName(name string) (addr string) {
 	rdLc, ok := lc.Get(GetOnKey(name))
 	if rdLc != nil {
 		rd = rdLc.(*RespData)
-		rd.Num++
 		addr = rd.GetAddr()
+		rd.Num++
 	}
 	if ok && addr != "" {
 		return
@@ -255,6 +258,7 @@ func GetAddrFromName(name string) (addr string) {
 		rd = GetRelsFromName(name, GetSrvAddr(), rd)
 		if rd != nil {
 			addr = rd.GetAddr()
+			rd.Num++
 			go func() {
 				lc.Set(GetOnKey(name), rd, NameExpire)
 				CheckRemoteConn(rd.Rels)
